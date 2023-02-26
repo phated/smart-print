@@ -6,7 +6,8 @@ module Break = struct
   (* A break can be a whitespace or a newline if the text has to be splited. *)
   type t =
     | Space
-    | Newline
+    | Softline
+    | Hardline
 end
 
 (* The internal representation of a document and the engine. *)
@@ -38,13 +39,18 @@ module Atom = struct
     : t * int * Break.t option =
     match a with
     | String (_, _, l) ->
-      (a, (if last_break = Some Break.Newline then p + i + l else p + l), None)
+      (a, (if last_break = Some Break.Hardline then p + i + l else p + l), None)
     | Break Break.Space ->
       if last_break = None then
         (a, p + 1, Some Break.Space)
       else
         (a, p, last_break)
-    | Break Break.Newline -> (a, 0, Some Break.Newline)
+    | Break Break.Softline ->
+      if last_break = None then
+        (a, p, Some Break.Softline)
+      else
+        (a, p, last_break)
+    | Break Break.Hardline -> (a, 0, Some Break.Hardline)
     | GroupOne (can_nest, _as) ->
       let (_as, p, last_break) = try_eval_list_one width tab i _as p last_break false can_nest false in
       (GroupOne (can_nest, _as), p, last_break)
@@ -69,13 +75,18 @@ module Atom = struct
         (p, last_break) in
     match a with
     | String (_, _, l) ->
-      try_return ((if last_break = Some Break.Newline then p + i + l else p + l), None)
+      try_return ((if last_break = Some Break.Hardline then p + i + l else p + l), None)
     | Break Break.Space ->
       if last_break = None then
         try_return (p + 1, Some Break.Space)
       else
         try_return (p, last_break)
-    | Break Break.Newline -> raise Overflow
+    | Break Break.Softline ->
+      if last_break = None then
+        try_return (p, Some Break.Softline)
+      else
+        try_return (p, last_break)
+    | Break Break.Hardline -> raise Overflow
     | GroupOne (can_nest, _as) ->
       let (p, last_break) = try_eval_list_flat width tab (i + tab) _as p last_break in
       (p, last_break)
@@ -110,24 +121,39 @@ module Atom = struct
         | Overflow ->
           let do_indent = can_nest && not in_nest in
           let (_as, p, last_break) = try_eval_list_one width tab (if do_indent then i + tab else i)
-            _as 0 (Some Break.Newline) false can_nest can_nest in
+            _as 0 (Some Break.Hardline) false can_nest can_nest in
           if do_indent then
-            ([Break Break.Newline; Indent (1, GroupOne (false, _as))], p, last_break)
+            ([Break Break.Hardline; Indent (1, GroupOne (false, _as))], p, last_break)
           else
-            (Break Break.Newline :: _as, p, last_break))
+            (Break Break.Hardline :: _as, p, last_break))
       else
         try_eval_list_one width tab i _as p last_break can_fail can_nest in_nest
-    | Break Break.Newline :: _as ->
+    | Break Break.Softline :: _as ->
+      if last_break = None then
+        (* If it is not possible in flat mode, switch back to "at best". *)
+        (try let (_as, p, last_break) = try_eval_list_one width tab i _as p (Some Break.Softline) true can_nest in_nest in
+          (Break Break.Softline :: _as, p, last_break) with
+        | Overflow ->
+          let do_indent = can_nest && not in_nest in
+          let (_as, p, last_break) = try_eval_list_one width tab (if do_indent then i + tab else i)
+            _as 0 (Some Break.Hardline) false can_nest can_nest in
+          if do_indent then
+            ([Break Break.Hardline; Indent (1, GroupOne (false, _as))], p, last_break)
+          else
+            (Break Break.Hardline :: _as, p, last_break))
+      else
+        try_eval_list_one width tab i _as p last_break can_fail can_nest in_nest
+    | Break Break.Hardline :: _as ->
       let (_as, p, last_break) =
         (* If there is an explicit newline we always undo the nesting. *)
         if in_nest then
-          try_eval_list_one width tab (i - tab) _as 0 (Some Break.Newline) false can_nest false
+          try_eval_list_one width tab (i - tab) _as 0 (Some Break.Hardline) false can_nest false
         else
-          try_eval_list_one width tab i _as 0 (Some Break.Newline) false can_nest false in
+          try_eval_list_one width tab i _as 0 (Some Break.Hardline) false can_nest false in
       if in_nest then
-        ([Break Break.Newline; Indent (- 1, GroupOne (false, _as))], p, last_break)
+        ([Break Break.Hardline; Indent (- 1, GroupOne (false, _as))], p, last_break)
       else
-        (Break Break.Newline :: _as, p, last_break)
+        (Break Break.Hardline :: _as, p, last_break)
     | a :: _as ->
       let (a, p, last_break) =
         (* If [Overflow] is possible we try in flat mode, else "at best". *)
@@ -146,14 +172,15 @@ module Atom = struct
     : t list * int * Break.t option =
     match _as with
     | [] -> (_as, p, last_break)
-    | Break Break.Space :: _as ->
+    | Break Break.Space :: _as
+    | Break Break.Softline :: _as ->
       if last_break = None then (
         let (_as, p, last_break) =
-          eval_list_all width tab (if can_nest then i + tab else i) _as 0 (Some Break.Newline) false in
+          eval_list_all width tab (if can_nest then i + tab else i) _as 0 (Some Break.Hardline) false in
         if can_nest then
-          ([Break Break.Newline; Indent (1, GroupAll (false, _as))], p, last_break)
+          ([Break Break.Hardline; Indent (1, GroupAll (false, _as))], p, last_break)
         else
-          (Break Break.Newline :: _as, p, last_break)
+          (Break Break.Hardline :: _as, p, last_break)
       ) else
         eval_list_all width tab i _as p last_break can_nest
     | a :: _as ->
@@ -163,7 +190,7 @@ module Atom = struct
 
   (* Evaluate the breaks with a maximal [width] per line and a tabulation width [tab]. *)
   let render (width : int) (tab : int) (_as : t list) : t =
-    let (a, _, _) = eval width tab 0 (GroupOne (false, _as)) 0 (Some Break.Newline) in
+    let (a, _, _) = eval width tab 0 (GroupOne (false, _as)) 0 (Some Break.Hardline) in
     a
 
   (* A buffer eating trailing spaces. *)
@@ -221,8 +248,8 @@ module Atom = struct
     let rec aux a i (last_break : Break.t option) : Break.t option =
       match a with
       | String (s, o, l) ->
-        (*Printf.printf "<%d, %b>" i (last_break = Some Break.Newline);*)
-        if last_break = Some Break.Newline then
+        (*Printf.printf "<%d, %b>" i (last_break = Some Break.Hardline);*)
+        if last_break = Some Break.Hardline then
           indent b i;
         sub_string b s o l; None
       | Break Break.Space ->
@@ -230,17 +257,22 @@ module Atom = struct
           (space b; Some Break.Space)
         else
           last_break
-      | Break Break.Newline ->
-        if last_break = Some Break.Newline then
+      | Break Break.Softline ->
+        if last_break = None then
+          Some Break.Softline
+        else
+          last_break
+      | Break Break.Hardline ->
+        if last_break = Some Break.Hardline then
           indent b i;
-        newline b; Some Break.Newline
+        newline b; Some Break.Hardline
       | GroupOne (_, _as) | GroupAll (_, _as) ->
         let last_break = ref last_break in
         _as |> List.iter (fun a ->
           last_break := aux a i !last_break);
         !last_break
       | Indent (n, a) -> aux a (i + n * tab) last_break in
-    ignore (aux a 0 (Some Break.Newline))
+    ignore (aux a 0 (Some Break.Hardline))
 end
 
 (* A document is a binary tree of atoms so that concatenation happens in O(1). *)
@@ -266,8 +298,8 @@ let sub_string (s : string) (o : int) (l : int) : t =
     Leaf (Atom.String (s, o, l))
 
 let space : t = Leaf (Atom.Break Break.Space)
-
-let newline : t = Leaf (Atom.Break Break.Newline)
+let softline : t = Leaf (Atom.Break Break.Softline)
+let hardline : t = Leaf (Atom.Break Break.Hardline)
 
 let append (d1 : t) (d2 : t) : t =
   Node (d1, d2)
@@ -351,7 +383,7 @@ let words (s : string) : t =
     (split s (fun c -> c = ' ' || c = '\n' || c = '\t') 0 0)
 
 let lines (s : string) : t =
-  separate newline @@ List.map (fun (o, l) -> sub_string s o l)
+  separate hardline @@ List.map (fun (o, l) -> sub_string s o l)
     (split s (fun c -> c = '\n') 0 0)
 
 module OCaml = struct
@@ -388,7 +420,8 @@ module Debug = struct
     match a with
     | Atom.String (s, o, l) -> OCaml.string (String.sub s o l)
     | Atom.Break Break.Space -> !^ "Space"
-    | Atom.Break Break.Newline -> !^ "Newline"
+    | Atom.Break Break.Softline -> !^ "Softline"
+    | Atom.Break Break.Hardline -> !^ "Hardline"
     | Atom.GroupOne (can_nest, _as) -> nest (!^ "GroupOne" ^^ parens (OCaml.bool can_nest ^-^ !^ "," ^^ pp_atoms _as))
     | Atom.GroupAll (can_nest, _as) -> nest (!^ "GroupAll" ^^ parens (OCaml.bool can_nest ^-^ !^ "," ^^ pp_atoms _as))
     | Atom.Indent (n, a) -> nest (!^ "Indent" ^^ parens (OCaml.int n ^-^ !^ "," ^^ pp_atom a))

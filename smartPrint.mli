@@ -21,8 +21,11 @@ val (!^) : string -> t
 (** A breakable space. *)
 val space : t
 
+(** A breakable position with no space. *)
+val softline : t
+
 (** A newline. *)
-val newline : t
+val hardline : t
 
 (** Concatenation of two documents. *)
 val append : t -> t -> t

@@ -19,7 +19,7 @@ let rec pp (paren : bool) (e : t) : SmartPrint.t =
   | App (e1, e2) -> nest @@ if_parens (pp true e1 ^^ pp true e2)
   | Fun (x, e) -> nest @@ parens (!^ "fun" ^^ !^ x ^^ !^ "->" ^^ pp false e)
   | Let (x, e1, e2) ->
-    nest (!^ "let" ^^ !^ x ^^ !^ "=" ^^ pp false e1 ^^ !^ "in" ^^ newline ^^ pp false e2)
+    nest (!^ "let" ^^ !^ x ^^ !^ "=" ^^ pp false e1 ^^ !^ "in" ^^ hardline ^^ pp false e2)
   | Tuple es -> OCaml.list (pp false) es
 
 (** A sample of expressions. *)
@@ -46,7 +46,7 @@ let print_document (d : SmartPrint.t) : unit =
 
 (** The main function. *)
 let main () =
-  print_document (!^ "hello" ^^ !^ "world" ^^ newline ^^ nest (!^ "gre" ^^ nest_all (!^ "arg" ^^ !^ "arg")));
+  print_document (!^ "hello" ^^ !^ "world" ^^ hardline ^^ nest (!^ "gre" ^^ nest_all (!^ "arg" ^^ !^ "arg")));
   es |> List.iter (fun e ->
     print_document @@ pp false e);
   print_document @@ sub_string "hfgs_kjl_df" 5 3;
