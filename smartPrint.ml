@@ -219,8 +219,7 @@ module Atom = struct
       b.add_string (String.make b.nb_spaces ' ');
       forget_spaces b
 
-    (* Indent by [i] spaces. By convention, indentation spaces are always
-        printed, even one an empty line, to mark the indentation level. *)
+    (* Indent by [i] spaces. Indentation spaces are not printed when on an empty line *)
     let indent (b : t) (i : int) : unit =
       forget_spaces b;
       b.add_string (String.make i ' ')
@@ -247,6 +246,11 @@ module Atom = struct
     let b = make add_char add_string add_sub_string in
     let rec aux a i (last_break : Break.t option) : Break.t option =
       match a with
+      | String ("", o, l) ->
+        (* If we have an emptry string, we don't want to indent *)
+        if last_break = Some Break.Hardline then
+          forget_spaces b;
+        None
       | String (s, o, l) ->
         (*Printf.printf "<%d, %b>" i (last_break = Some Break.Hardline);*)
         if last_break = Some Break.Hardline then
