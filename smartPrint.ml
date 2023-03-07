@@ -199,15 +199,17 @@ module Atom = struct
       add_char : char -> unit;
       add_string : string -> unit;
       add_sub_string : string -> int -> int -> unit;
+      add_newline : unit -> unit;
       mutable nb_spaces : int }
 
     (* A new buffer. *)
     let make (add_char : char -> unit) (add_string : string -> unit)
-      (add_sub_string : string -> int -> int -> unit) : t =
+      (add_sub_string : string -> int -> int -> unit) (add_newline: unit -> unit): t =
       {
         add_char = add_char;
         add_string = add_string;
         add_sub_string = add_sub_string;
+        add_newline = add_newline;
         nb_spaces = 0 (* A number of spaces we may print if they are not trailing. *) }
 
     (* Forget previous spaces which appear to be trailing. *)
@@ -236,14 +238,14 @@ module Atom = struct
     (* Print a newline, with no trailing space before it. *)
     let newline (b : t) : unit =
       forget_spaces b;
-      b.add_char '\n'
+      b.add_newline ();
   end
 
   (* Write to something, given the [add_char] and [add_string] functions. *)
   let to_something (tab : int) (add_char : char -> unit) (add_string : string -> unit)
-    (add_sub_string : string -> int -> int -> unit) (a : t) : unit =
+    (add_sub_string : string -> int -> int -> unit) (add_newline: unit -> unit) (a : t) : unit =
     let open NonTrailingBuffer in
-    let b = make add_char add_string add_sub_string in
+    let b = make add_char add_string add_sub_string add_newline in
     let rec aux a i (last_break : Break.t option) : Break.t option =
       match a with
       | String ("", o, l) ->
@@ -267,8 +269,6 @@ module Atom = struct
         else
           last_break
       | Break Break.Hardline ->
-        if last_break = Some Break.Hardline then
-          indent b i;
         newline b; Some Break.Hardline
       | GroupOne (_, _as) | GroupAll (_, _as) ->
         let last_break = ref last_break in
@@ -444,24 +444,27 @@ end
 let to_something (width : int) (tab : int)
   (add_char : char -> unit) (add_string : string -> unit)
   (add_sub_string : string -> int -> int -> unit)
+  (add_newline : unit -> unit)
   (d : t) : unit =
-  Atom.to_something tab add_char add_string add_sub_string @@
+  Atom.to_something tab add_char add_string add_sub_string add_newline @@
     Atom.render width tab @@ to_atoms d
 
-let to_buffer (width : int) (tab : int) (b : Buffer.t) (d : t) : unit =
+let to_buffer (width : int) (tab : int) (newline : string) (b : Buffer.t) (d : t) : unit =
+  let output_newline () = Buffer.add_string b newline in
   to_something width tab
-    (Buffer.add_char b) (Buffer.add_string b) (Buffer.add_substring b) d
+    (Buffer.add_char b) (Buffer.add_string b) (Buffer.add_substring b) output_newline d
 
-let to_string (width : int) (tab : int) (d : t) : string =
+let to_string (width : int) (tab : int) (newline : string ) (d : t) : string =
   let b = Buffer.create 10 in
-  to_buffer width tab b d;
+  to_buffer width tab newline b d;
   Buffer.contents b
 
-let to_out_channel (width : int) (tab : int) (c : out_channel) (d : t) : unit =
+let to_out_channel (width : int) (tab : int) (newline : string) (c : out_channel) (d : t) : unit =
   let output_sub_string (s : string) (o : int) (l : int) : unit =
     output_string c (String.sub s o l) in
+  let output_newline () = output_string c newline in
   to_something width tab
-    (output_char c) (output_string c) output_sub_string d
+    (output_char c) (output_string c) output_sub_string output_newline d
 
-let to_stdout (width : int) (tab : int) (d : t) : unit =
-  to_out_channel width tab stdout d
+let to_stdout (width : int) (tab : int) (newline : string) (d : t) : unit =
+  to_out_channel width tab newline stdout d

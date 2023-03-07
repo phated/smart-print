@@ -139,16 +139,16 @@ end
 val to_something :
   int -> int ->
   (char -> unit) -> (string -> unit) -> (string -> int -> int -> unit) ->
-  t -> unit
+  (unit -> unit) -> t -> unit
 
 (** Render a document in a buffer with a maximal [width] per line and a tabulation size. *)
-val to_buffer : int -> int -> Buffer.t -> t -> unit
+val to_buffer : int -> int -> string -> Buffer.t -> t -> unit
 
 (** Render a document in a string with a maximal [width] per line and a tabulation size. *)
-val to_string : int -> int -> t -> string
+val to_string : int -> int -> string -> t -> string
 
 (** Render a document in an output channel with a maximal [width] per line and a tabulation size. *)
-val to_out_channel : int -> int -> out_channel -> t -> unit
+val to_out_channel : int -> int -> string -> out_channel -> t -> unit
 
 (** Render a document on [stdout] with a maximal [width] per line and a tabulation size. *)
-val to_stdout : int -> int -> t -> unit
+val to_stdout : int -> int -> string -> t -> unit
